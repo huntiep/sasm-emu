@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -37,12 +38,29 @@ struct phdr {
     uint64_t p_align;
 };
 
+void print_usage(char* prog) {
+    fprintf(stderr, "USAGE: %s <EXE>\n\t-d: Debugger mode.\n", prog);
+}
+
 int main(int argc, char* argv[]) {
+    char* prog = argv[0];
     if (argc < 2) {
+        print_usage(prog);
         return 1;
     }
+    int debug = 0;
+    if (strcmp(argv[1], "-d") == 0) {
+        debug = 1;
+        if (argc == 2) {
+            print_usage(prog);
+            return 1;
+        }
+        argc -= 2;
+        argv++;
+        argv++;
+    }
 
-    int exe = openat(AT_FDCWD, argv[1], O_RDONLY);
+    int exe = openat(AT_FDCWD, argv[0], O_RDONLY);
     struct ehdr hdr;
     read(exe, (char*) &hdr, sizeof(struct ehdr));
 
@@ -76,10 +94,10 @@ int main(int argc, char* argv[]) {
     uint64_t STACK_SIZE = 8392704;
     char* stack = mmap((char*) 0x4000000000, STACK_SIZE, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0);
     // copy argc/argv to stack, skipping emulator args
-    uint64_t* sp = (uint64_t*) (stack + STACK_SIZE - (8 * argc));
-    sp[0] = (uint64_t) (argc - 1);
-    for (int i = 1; i < argc; i++) {
-        sp[i] = (uint64_t) argv[i];
+    uint64_t* sp = (uint64_t*) (stack + STACK_SIZE - (8 * argc + 8));
+    sp[0] = (uint64_t) argc;
+    for (int i = 0; i < argc; i++) {
+        sp[i + 1] = (uint64_t) argv[i];
     }
 
     uint64_t registers[32] = {};
