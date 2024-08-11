@@ -4,8 +4,8 @@ build:
     @gcc main.c
     @sasm t.sasm
 
-run:
+run: build
     @./a.out ./bin.elf
 
-debug:
+debug: build
     @./a.out -d ./bin.elf

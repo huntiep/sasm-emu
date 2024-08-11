@@ -1,4 +1,4 @@
-# rv64-emu
+# Sasm-emu
 
 This is a debugging emulator for RiscV64 Linux, similar to qemu-user.
 
