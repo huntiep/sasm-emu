@@ -57,7 +57,8 @@ uint32_t* instructions = 0;
 struct perf perf = {};
 uint64_t registers[32] = {};
 int debug = 0;
-
+uint64_t heap_start = 0;
+uint64_t heap_end = 0;
 
 void segfault(int sig_num) {
     fprintf(stderr, "SEGFAULT\n");
@@ -98,9 +99,6 @@ int main(int argc, char* argv[]) {
 
     struct phdr* phdrs = calloc(hdr.e_phnum, sizeof(struct phdr));
     read(exe, (char*) phdrs, sizeof(struct phdr) * hdr.e_phnum);
-
-    uint64_t heap_start = 0;
-    uint64_t heap_end = 0;
 
     for (int i = 0; i < hdr.e_phnum; i++) {
         int flags = PROT_READ;
@@ -416,8 +414,10 @@ int main(int argc, char* argv[]) {
                     // brk
                     if (registers[10] == 0) {
                         registers[10] = heap_end;
-                    } else {
-                        mmap((char*) heap_start, registers[10] - heap_start, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0);
+                    } else if (registers[10] > heap_end) {
+                        uint64_t size = ((registers[10] - heap_end) + 4095) & (-4096);
+                        mmap((char*) heap_end, size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0);
+                        heap_end += size;
                     }
                 } else {
                     ecall(registers);
@@ -744,6 +744,7 @@ dread:
         fprintf(stderr, "Loads: %d\n", perf.loads);
         fprintf(stderr, "Stores: %d\n", perf.stores);
         fprintf(stderr, "Syscalls: %d\n", perf.syscalls);
+        fprintf(stderr, "Heap size: 0x%x %d\n", heap_end - heap_start, heap_end - heap_start);
         goto prompt;
     } else if (size == 1 && buf[0] == 'i') {
         // print current instruction
