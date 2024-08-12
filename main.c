@@ -145,6 +145,7 @@ int main(int argc, char* argv[]) {
         }
     }
     free(phdrs);
+    close(exe);
 
     // stack
     uint64_t STACK_SIZE = 8392704;
@@ -1013,6 +1014,33 @@ prompt:
             }
         } else {
             wprintw(cli_win, "Invalid register.\n");
+        }
+        wrefresh(cli_win);
+        goto prompt;
+    } else if (size > 3 && strncmp(cur_item, "xs ", 3) == 0) {
+        // examine memory as string
+        char* err;
+        uint64_t addr = strtoll(cur_item + 3, &err, 16);
+        if (err == cur_item + 1 || *err != 0) {
+            wprintw(cli_win, "Bad argument.\n");
+        } else {
+            int y, x;
+            getmaxyx(cli_win, y, x);
+            x = x <= 21 ? x - 2 : 20;
+            waddnstr(cli_win, (char*) addr, x);
+            waddch(cli_win, '\n');
+        }
+        wrefresh(cli_win);
+        goto prompt;
+    } else if (size > 2 && strncmp(cur_item, "x ", 2) == 0) {
+        // examine memory
+        char* err;
+        uint64_t addr = strtoll(cur_item + 2, &err, 16);
+        if (err == cur_item + 1 || *err != 0) {
+            wprintw(cli_win, "Bad argument.\n");
+        } else {
+            addr = *((uint64_t*) addr);
+            wprintw(cli_win, "0x%llx %lld\n", addr, addr);
         }
         wrefresh(cli_win);
         goto prompt;
