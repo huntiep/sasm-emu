@@ -7,8 +7,10 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <ncurses.h>
+
 void ecall(uint64_t registers[32]);
-void print_instruction(uint32_t);
+void print_instruction(WINDOW*, uint32_t);
 void prompt();
 
 uint16_t RISCV = 0xf3;
@@ -52,11 +54,15 @@ void print_usage(char* prog) {
     fprintf(stderr, "USAGE: %s <EXE>\n\t-d: Debugger mode.\n", prog);
 }
 
+WINDOW* asm_win;
+WINDOW* cli_win;
+
 uint32_t* pc = 0;
 uint32_t* instructions = 0;
 struct perf perf = {};
 uint64_t registers[32] = {};
 int debug = 0;
+int curses = 0;
 uint64_t heap_start = 0;
 uint64_t heap_end = 0;
 
@@ -65,6 +71,11 @@ void segfault(int sig_num) {
     while (1) {
         prompt();
     }
+}
+
+void sigint(int sig_num) {
+    endwin();
+    exit(1);
 }
 
 int main(int argc, char* argv[]) {
@@ -96,6 +107,7 @@ int main(int argc, char* argv[]) {
     }
 
     pc = (uint32_t*) hdr.e_entry;
+    instructions = (uint32_t*) hdr.e_entry;
 
     struct phdr* phdrs = calloc(hdr.e_phnum, sizeof(struct phdr));
     read(exe, (char*) phdrs, sizeof(struct phdr) * hdr.e_phnum);
@@ -114,7 +126,8 @@ int main(int argc, char* argv[]) {
         }
 
         if (phdrs[i].p_flags == 5) {
-            instructions = (uint32_t*) mmap(pos, size, flags, MAP_PRIVATE|MAP_FIXED, exe, 0);
+            mmap(pos, size, flags, MAP_PRIVATE|MAP_FIXED, exe, 0);
+            //instructions = (uint32_t*) mmap(pos, size, flags, MAP_PRIVATE|MAP_FIXED, exe, 0);
         } else {
             mmap(pos, size, flags, MAP_PRIVATE|MAP_FIXED, exe, 0);
         }
@@ -132,6 +145,25 @@ int main(int argc, char* argv[]) {
     }
 
     if (debug) {
+        initscr();
+        cbreak();
+        noecho();
+        keypad(stdscr, TRUE);
+        int h, w;
+        getmaxyx(stdscr, h, w);
+        asm_win = newwin((h/2) - 1, w, 0, 0);
+        cli_win = newwin(h-(h/2), w, h/2, 0);
+        scrollok(cli_win, TRUE);
+
+        wrefresh(stdscr);
+        move((h/2) - 1, 0);
+        whline(stdscr, ACS_HLINE, w);
+        wrefresh(stdscr);
+        wmove(cli_win, h-(h/2)-1, 0);
+        wrefresh(cli_win);
+
+        curses = 1;
+        signal(SIGINT, sigint);
         signal(SIGSEGV, segfault);
     }
 
@@ -148,9 +180,6 @@ int main(int argc, char* argv[]) {
             prompt();
         }
         uint32_t instruction = pc[0];
-        if (debug) {
-            print_instruction(instruction);
-        }
         perf.instruction_count++;
         pc++;
         uint32_t opcode = instruction & 0b1111111;
@@ -425,12 +454,27 @@ int main(int argc, char* argv[]) {
             }
         } else {
             fprintf(stderr, "ILLEGAL INSTRUCTION: %x at %x\n", instruction, pc);
+            if (curses) {
+                endwin();
+            }
             return 1;
         }
+    }
+    if (curses) {
+        endwin();
     }
 }
 
 void ecall(uint64_t registers[32]) {
+    // exit
+    if (registers[17] == 93) {
+        if (debug) {
+            while (1) { prompt(); }
+        }
+        if (curses) {
+            endwin();
+        }
+    }
     uint16_t syscalls_map[320] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                                  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                                  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -466,7 +510,7 @@ void ecall(uint64_t registers[32]) {
     registers[10] = ret;
 }
 
-void print_instruction(uint32_t instruction) {
+void print_instruction(WINDOW* win, uint32_t instruction) {
     uint32_t opcode = instruction & 0b1111111;
     if (opcode == 0b0110011) {
         // R
@@ -479,52 +523,52 @@ void print_instruction(uint32_t instruction) {
         if (funct3 == 0) {
             if (funct7 == 0x00) {
                 // add
-                fprintf(stderr, "(add ");
+                wprintw(win, "(add ");
             } else if (funct7 == 0x20) {
                 // sub
-                fprintf(stderr, "(sub ");
+                wprintw(win, "(sub ");
             } else if (funct7 == 0x01) {
                 // mul
-                fprintf(stderr, "(mul ");
+                wprintw(win, "(mul ");
             }
         } else if (funct3 == 4) {
             if (funct7 == 0x00) {
                 // xor
-                fprintf(stderr, "(xor ");
+                wprintw(win, "(xor ");
             } else if (funct7 == 0x01) {
                 // div
-                fprintf(stderr, "(div ");
+                wprintw(win, "(div ");
             }
         } else if (funct3 == 6) {
             if (funct7 == 0x00) {
                 // or
-                fprintf(stderr, "(or ");
+                wprintw(win, "(or ");
             } else if (funct7 == 0x01) {
                 // rem
-                fprintf(stderr, "(rem ");
+                wprintw(win, "(rem ");
             }
         } else if (funct3 == 7) {
             // and
-            fprintf(stderr, "(and ");
+            wprintw(win, "(and ");
         } else if (funct3 == 1) {
             // sll
-            fprintf(stderr, "(sll ");
+            wprintw(win, "(sll ");
         } else if (funct3 == 5) {
             if (funct7 == 0x00) {
                 // srl
-                fprintf(stderr, "(srl ");
+                wprintw(win, "(srl ");
             } else if (funct7 == 0x20) {
                 // sra
-                fprintf(stderr, "(sra ");
+                wprintw(win, "(sra ");
             }
         } else if (funct3 == 2) {
             // slt
-            fprintf(stderr, "(slt ");
+            wprintw(win, "(slt ");
         } else if (funct3 == 3) {
             // sltu
-            fprintf(stderr, "(sltu ");
+            wprintw(win, "(sltu ");
         }
-        fprintf(stderr, "x%d x%d x%d)\n", rd, rs1, rs2);
+        wprintw(win, "x%d x%d x%d)\n", rd, rs1, rs2);
     } else if (opcode == 0b0010011) {
         // I
         uint32_t rd = (instruction >> 7) & 0b11111;
@@ -536,35 +580,35 @@ void print_instruction(uint32_t instruction) {
 
         if (funct3 == 0) {
             // addi
-            fprintf(stderr, "(addi ");
+            wprintw(win, "(addi ");
         } else if (funct3 == 4) {
             // xori
-            fprintf(stderr, "(xori ");
+            wprintw(win, "(xori ");
         } else if (funct3 == 6) {
             // ori
-            fprintf(stderr, "(ori ");
+            wprintw(win, "(ori ");
         } else if (funct3 == 7) {
             // andi
-            fprintf(stderr, "(andi ");
+            wprintw(win, "(andi ");
         } else if (funct3 == 1) {
             // slli
-            fprintf(stderr, "(slli ");
+            wprintw(win, "(slli ");
         } else if (funct3 == 5) {
             if ((imm >> 5) == 0x20) {
                 // srai
-                fprintf(stderr, "(srai ");
+                wprintw(win, "(srai ");
             } else {
                 // srli
-                fprintf(stderr, "(srli ");
+                wprintw(win, "(srli ");
             }
         } else if (funct3 == 2) {
             // slti
-            fprintf(stderr, "(slti ");
+            wprintw(win, "(slti ");
         } else if (funct3 == 3) {
             // sltiu
-            fprintf(stderr, "(sltiu ");
+            wprintw(win, "(sltiu ");
         }
-        fprintf(stderr, "x%d x%d %d)\n", rd, rs1, imm);
+        wprintw(win, "x%d x%d %d)\n", rd, rs1, imm);
     } else if (opcode == 0b0000011) {
         // I2
         uint32_t rd = (instruction >> 7) & 0b11111;
@@ -576,30 +620,30 @@ void print_instruction(uint32_t instruction) {
 
         if (funct3 == 0) {
             // lb
-            fprintf(stderr, "(lb ");
+            wprintw(win, "(lb ");
         } else if (funct3 == 1) {
             // lh
-            fprintf(stderr, "(lh ");
+            wprintw(win, "(lh ");
         } else if (funct3 == 2) {
             // lw
-            fprintf(stderr, "(lw ");
+            wprintw(win, "(lw ");
         } else if (funct3 == 3) {
             // ld
-            fprintf(stderr, "(ld ");
+            wprintw(win, "(ld ");
         } else if (funct3 == 4) {
             // lbu
-            fprintf(stderr, "(lbu ");
+            wprintw(win, "(lbu ");
         } else if (funct3 == 5) {
             // lhu
-            fprintf(stderr, "(lhu ");
+            wprintw(win, "(lhu ");
         } else if (funct3 == 6) {
             // lwu
-            fprintf(stderr, "(lwu ");
+            wprintw(win, "(lwu ");
         }
         if (imm == 0) {
-            fprintf(stderr, "x%d x%d)\n", rd, rs1);
+            wprintw(win, "x%d x%d)\n", rd, rs1);
         } else {
-            fprintf(stderr, "x%d (+ x%d %d))\n", rd, rs1, imm);
+            wprintw(win, "x%d (+ x%d %d))\n", rd, rs1, imm);
         }
     } else if (opcode == 0b0100011) {
         // S
@@ -612,21 +656,21 @@ void print_instruction(uint32_t instruction) {
 
         if (funct3 == 0) {
             // sb
-            fprintf(stderr, "(sb ");
+            wprintw(win, "(sb ");
         } else if (funct3 == 1) {
             // sh
-            fprintf(stderr, "(sh ");
+            wprintw(win, "(sh ");
         } else if (funct3 == 2) {
             // sw
-            fprintf(stderr, "(sw ");
+            wprintw(win, "(sw ");
         } else if (funct3 == 3) {
             // sd
-            fprintf(stderr, "(sd ");
+            wprintw(win, "(sd ");
         }
         if (imm == 0) {
-            fprintf(stderr, "x%d x%d)\n", rd, rs1);
+            wprintw(win, "x%d x%d)\n", rd, rs1);
         } else {
-            fprintf(stderr, "(+ x%d %d) x%d)\n", rd, imm, rs1);
+            wprintw(win, "(+ x%d %d) x%d)\n", rd, imm, rs1);
         }
     } else if (opcode == 0b1100011) {
         // B
@@ -639,24 +683,24 @@ void print_instruction(uint32_t instruction) {
         imm = (imm ^ m) - m;
         if (funct3 == 0) {
             // beq
-            fprintf(stderr, "(beq ");
+            wprintw(win, "(beq ");
         } else if (funct3 == 1) {
             // bne
-            fprintf(stderr, "(bne ");
+            wprintw(win, "(bne ");
         } else if (funct3 == 4) {
             // blt
-            fprintf(stderr, "(blt ");
+            wprintw(win, "(blt ");
         } else if (funct3 == 5) {
             // bge
-            fprintf(stderr, "(bge ");
+            wprintw(win, "(bge ");
         } else if (funct3 == 6) {
             // bltu
-            fprintf(stderr, "(bltu ");
+            wprintw(win, "(bltu ");
         } else if (funct3 == 7) {
             // bgeu
-            fprintf(stderr, "(bgeu ");
+            wprintw(win, "(bgeu ");
         }
-        fprintf(stderr, "x%d x%d %d)\n", rs1, rs2, imm);
+        wprintw(win, "x%d x%d %d)\n", rs1, rs2, imm);
     } else if (opcode == 0b1101111) {
         // JAL
         uint32_t rd = (instruction >> 7) & 0b11111;
@@ -664,7 +708,7 @@ void print_instruction(uint32_t instruction) {
                        ((instruction & 0x100000) >> 9) | (instruction & 0xff000);
         uint64_t m = 1U << (21 - 1);
         imm = (imm ^ m) - m;
-        fprintf(stderr, "(jal x%d %d)\n", rd, imm);
+        wprintw(win, "(jal x%d %d)\n", rd, imm);
     } else if (opcode == 0b1100111) {
         // JALR
         uint32_t rd = (instruction >> 7) & 0b11111;
@@ -673,9 +717,9 @@ void print_instruction(uint32_t instruction) {
         uint64_t m = 1U << (12 - 1);
         offset = (offset ^ m) - m;
         if (offset == 0) {
-            fprintf(stderr, "(jalr x%d x%d)\n", rd, rs);
+            wprintw(win, "(jalr x%d x%d)\n", rd, rs);
         } else {
-            fprintf(stderr, "(jalr x%d (+ x%d %d))\n", rd, rs, offset);
+            wprintw(win, "(jalr x%d (+ x%d %d))\n", rd, rs, offset);
         }
     } else if (opcode == 0b0110111) {
         // LUI
@@ -683,37 +727,98 @@ void print_instruction(uint32_t instruction) {
         uint64_t m = 1U << (32 - 1);
         imm = (imm ^ m) - m;
         uint32_t rd = (instruction >> 7) & 0b11111;
-        fprintf(stderr, "(lui x%d %d)\n", rd, imm);
+        wprintw(win, "(lui x%d %d)\n", rd, imm);
     } else if (opcode == 0b0010111) {
         // AUIPC
         uint64_t imm = instruction >> 12;
         uint64_t m = 1U << (32 - 1);
         imm = (imm ^ m) - m;
         uint32_t rd = (instruction >> 7) & 0b11111;
-        fprintf(stderr, "(auipc x%d %d)\n", rd, imm);
+        wprintw(win, "(auipc x%d %d)\n", rd, imm);
     } else if (opcode == 0b1110011) {
         if ((instruction & (1 << 12)) != 0) {
-            fprintf(stderr, "(ebreak)\n");
+            wprintw(win, "(ebreak)\n");
         } else {
-            fprintf(stderr, "(ecall)\n");
+            wprintw(win, "(ecall)\n");
         }
     }
 }
 
+void print_asm() {
+    int h, w;
+    getmaxyx(stdscr, h ,w);
+    h = (h / 2) - 1;
+    uint32_t* start = (pc - (h / 2)) < instructions ? instructions : pc - (h / 2);
+    wmove(asm_win, 0, 0);
+    for (int i = 0; i < h; i++) {
+        if (pc == start) {
+            wattron(asm_win, A_STANDOUT);
+        }
+        wprintw(asm_win, "%x\t", start);
+        print_instruction(asm_win, start[0]);
+        if (pc == start) {
+            wattroff(asm_win, A_STANDOUT);
+        }
+        start++;
+    }
+    getmaxyx(stdscr, h, w);
+    wmove(cli_win, h-(h/2)-1, 0);
+    wrefresh(asm_win);
+    wrefresh(stdscr);
+}
+
 void prompt() {
-    //print_screen(instructions, registers, pc);
+    print_asm();
+
 prompt:
-    printf("> ");
-    fflush(stdout);
+    waddstr(cli_win, "> ");
+    wrefresh(cli_win);
     char buf[1024];
 dread:
-    int size = read(STDIN_FILENO, buf, 1024);
+    int size = 0;
+    while (1) {
+        int ch = getch();
+        if (ch == KEY_RESIZE) {
+            int h, w;
+            getmaxyx(stdscr, h, w);
+            wresize(asm_win, (h/2)-1, w);
+            wresize(cli_win, h-(h/2), w);
+            wrefresh(stdscr);
+            move((h/2) - 1, 0);
+            whline(stdscr, ACS_HLINE, w);
+            wrefresh(stdscr);
+            wmove(cli_win, h-(h/2)-1, size+2);
+            wrefresh(cli_win);
+        } else if (ch == KEY_BACKSPACE) {
+            if (size) {
+                int y, x;
+                getyx(cli_win, y, x);
+                mvwaddch(cli_win, y, x-1, ' ');
+                wmove(cli_win, y, x-1);
+                wrefresh(cli_win);
+                size--;
+            }
+        } else if (ch == '\n') {
+            wechochar(cli_win, ch);
+            break;
+        } else if (ch == 4) {
+            // CTRL-D
+            wechochar(cli_win, '\n');
+            goto prompt;
+        } else if (ch < 128) {
+            buf[size] = ch;
+            size++;
+            wechochar(cli_win, ch);
+        } else {
+            //wprintw(cli_win, "%d\n", ch);
+            //wrefresh(cli_win);
+        }
+    }
+
+    //int size = read(STDIN_FILENO, buf, 1024);
     if (size == 0) {
-        goto dread;
-    } else if (size == 1) {
         goto prompt;
     }
-    size--;
 
     // add to history
     /*
@@ -731,24 +836,31 @@ dread:
         // step
         return;
     } else if (size == 1 && buf[0] == 'd') {
-        fprintf(stderr, "pc:\t0x%x\t%d\t\t", pc, pc);
-        fprintf(stderr, "x%d:\t0x%x\t%d\n", 16, registers[16], registers[16]);
+        wprintw(cli_win, "pc:\t0x%x\t%d\t\t", pc, pc);
+        wprintw(cli_win, "x%d:\t0x%x\t%d\n", 16, registers[16], registers[16]);
         for (int i = 1; i < 16; i++) {
-            fprintf(stderr, "x%d:\t0x%x\t%d\t\t", i, registers[i], registers[i]);
-            fprintf(stderr, "x%d:\t0x%x\t%d\n", i+16, registers[i+16], registers[i+16]);
+            wprintw(cli_win, "x%d:\t0x%x\t%d\t\t", i, registers[i], registers[i]);
+            wprintw(cli_win, "x%d:\t0x%x\t%d\n", i+16, registers[i+16], registers[i+16]);
         }
+        wrefresh(cli_win);
         goto prompt;
     } else if (size == 4 && strncmp(buf, "perf", 4) == 0) {
         // print perf
-        fprintf(stderr, "Instruction count: %d\n", perf.instruction_count);
-        fprintf(stderr, "Loads: %d\n", perf.loads);
-        fprintf(stderr, "Stores: %d\n", perf.stores);
-        fprintf(stderr, "Syscalls: %d\n", perf.syscalls);
-        fprintf(stderr, "Heap size: 0x%x %d\n", heap_end - heap_start, heap_end - heap_start);
+        wprintw(cli_win, "Instruction count: %d\n", perf.instruction_count);
+        wprintw(cli_win, "Loads: %d\n", perf.loads);
+        wprintw(cli_win, "Stores: %d\n", perf.stores);
+        wprintw(cli_win, "Syscalls: %d\n", perf.syscalls);
+        wprintw(cli_win, "Heap size: 0x%x %d\n", heap_end - heap_start, heap_end - heap_start);
+        wrefresh(cli_win);
         goto prompt;
     } else if (size == 1 && buf[0] == 'i') {
         // print current instruction
-        print_instruction((pc - 1)[0]);
+        if (pc == instructions) {
+            print_instruction(cli_win, pc[0]);
+        } else {
+            print_instruction(cli_win, (pc - 1)[0]);
+        }
+        wrefresh(cli_win);
         goto prompt;
     } else if (size >= 1 && buf[0] == 'p') {
         // print register
@@ -760,6 +872,9 @@ dread:
     } else if (size >= 1 && buf[0] == 'q') {
         // quit
         // TODO: prompt
+        if (curses) {
+            endwin();
+        }
         exit(0);
     } else {
         goto prompt;

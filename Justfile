@@ -1,7 +1,7 @@
 all: build
 
 build:
-    @gcc main.c
+    @gcc main.c -lncurses
     @sasm t.sasm
 
 run: build
