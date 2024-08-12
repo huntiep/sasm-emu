@@ -10,10 +10,13 @@
 #include <ncurses.h>
 
 void ecall(uint64_t registers[32]);
-void print_instruction(WINDOW*, uint32_t);
+int print_instruction(WINDOW*, uint32_t);
 void prompt();
 
 uint16_t RISCV = 0xf3;
+
+#define ALT_J (1024+'j')
+#define ALT_K (1024+'k')
 
 struct ehdr {
     uint8_t e_ident[16];
@@ -149,6 +152,9 @@ int main(int argc, char* argv[]) {
         cbreak();
         noecho();
         keypad(stdscr, TRUE);
+        define_key("\033j", ALT_J);
+        define_key("\033k", ALT_K);
+
         int h, w;
         getmaxyx(stdscr, h, w);
         asm_win = newwin((h/2) - 1, w, 0, 0);
@@ -510,7 +516,7 @@ void ecall(uint64_t registers[32]) {
     registers[10] = ret;
 }
 
-void print_instruction(WINDOW* win, uint32_t instruction) {
+int print_instruction(WINDOW* win, uint32_t instruction) {
     uint32_t opcode = instruction & 0b1111111;
     if (opcode == 0b0110011) {
         // R
@@ -741,34 +747,75 @@ void print_instruction(WINDOW* win, uint32_t instruction) {
         } else {
             wprintw(win, "(ecall)\n");
         }
+    } else {
+        return 1;
     }
+
+    return 0;
 }
 
-void print_asm() {
+void resize() {
+    int h, w;
+    getmaxyx(stdscr, h, w);
+    wresize(asm_win, (h/2)-1, w);
+    wresize(cli_win, h-(h/2), w);
+    wrefresh(stdscr);
+    move((h/2) - 1, 0);
+    whline(stdscr, ACS_HLINE, w);
+    wrefresh(stdscr);
+}
+
+uint32_t* asm_view_pc;
+
+void print_asm(int cursor_x) {
     int h, w;
     getmaxyx(stdscr, h ,w);
     h = (h / 2) - 1;
-    uint32_t* start = (pc - (h / 2)) < instructions ? instructions : pc - (h / 2);
+    uint32_t* start = (asm_view_pc - (h / 2)) < instructions ? instructions : asm_view_pc - (h / 2);
     wmove(asm_win, 0, 0);
     for (int i = 0; i < h; i++) {
         if (pc == start) {
             wattron(asm_win, A_STANDOUT);
         }
         wprintw(asm_win, "%x\t", start);
-        print_instruction(asm_win, start[0]);
+        if (print_instruction(asm_win, start[0])) {
+            wprintw(asm_win, "\n");
+        }
         if (pc == start) {
             wattroff(asm_win, A_STANDOUT);
         }
         start++;
     }
     getmaxyx(stdscr, h, w);
-    wmove(cli_win, h-(h/2)-1, 0);
+    wmove(cli_win, h-(h/2)-1, cursor_x);
     wrefresh(asm_win);
     wrefresh(stdscr);
 }
 
+void asm_view(int cursor_x) {
+    curs_set(0);
+    while (1) {
+        int ch = getch();
+        if (ch == KEY_RESIZE) {
+            resize();
+        } else if (ch == ALT_J) {
+            curs_set(1);
+            return;
+        } else if (ch == 'j') {
+            asm_view_pc++;
+            print_asm(cursor_x);
+            wrefresh(cli_win);
+        } else if (ch == 'k') {
+            asm_view_pc = asm_view_pc <= instructions ? instructions : asm_view_pc - 1;
+            print_asm(cursor_x);
+            wrefresh(cli_win);
+        }
+    }
+}
+
 void prompt() {
-    print_asm();
+    asm_view_pc = pc;
+    print_asm(0);
 
 prompt:
     waddstr(cli_win, "> ");
@@ -779,15 +826,10 @@ dread:
     while (1) {
         int ch = getch();
         if (ch == KEY_RESIZE) {
-            int h, w;
-            getmaxyx(stdscr, h, w);
-            wresize(asm_win, (h/2)-1, w);
-            wresize(cli_win, h-(h/2), w);
-            wrefresh(stdscr);
-            move((h/2) - 1, 0);
-            whline(stdscr, ACS_HLINE, w);
-            wrefresh(stdscr);
-            wmove(cli_win, h-(h/2)-1, size+2);
+            resize();
+            int y, x;
+            getmaxyx(cli_win, y, x);
+            wmove(cli_win, y, size+2);
             wrefresh(cli_win);
         } else if (ch == KEY_BACKSPACE) {
             if (size) {
@@ -798,6 +840,12 @@ dread:
                 wrefresh(cli_win);
                 size--;
             }
+        } else if (ch == ALT_K) {
+            asm_view(size+2);
+            int y, x;
+            getmaxyx(cli_win, y, x);
+            wmove(cli_win, y, size+2);
+            wrefresh(cli_win);
         } else if (ch == '\n') {
             wechochar(cli_win, ch);
             break;
