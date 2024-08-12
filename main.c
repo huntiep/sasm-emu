@@ -68,6 +68,10 @@ int debug = 0;
 int curses = 0;
 uint64_t heap_start = 0;
 uint64_t heap_end = 0;
+char* history[100] = {};
+int history_start = 0;
+int history_end = 0;
+
 
 void segfault(int sig_num) {
     fprintf(stderr, "SEGFAULT\n");
@@ -174,12 +178,6 @@ int main(int argc, char* argv[]) {
     }
 
     registers[2] = (uint64_t) sp;
-
-    /*
-    uint64_t history[200] = {};
-    int history_start = 0;
-    int history_end = 0;
-    */
 
     while (1) {
         if (debug) {
@@ -818,10 +816,12 @@ void prompt() {
     print_asm(0);
 
 prompt:
+    int history_pos = history_end;
     waddstr(cli_win, "> ");
     wrefresh(cli_win);
     char buf[1024];
-dread:
+    buf[0] = 0;
+    char* cur_item = buf;
     int size = 0;
     while (1) {
         int ch = getch();
@@ -831,7 +831,7 @@ dread:
             getmaxyx(cli_win, y, x);
             wmove(cli_win, y, size+2);
             wrefresh(cli_win);
-        } else if (ch == KEY_BACKSPACE) {
+        } else if ((ch == KEY_BACKSPACE) && (cur_item == buf)) {
             if (size) {
                 int y, x;
                 getyx(cli_win, y, x);
@@ -846,6 +846,32 @@ dread:
             getmaxyx(cli_win, y, x);
             wmove(cli_win, y, size+2);
             wrefresh(cli_win);
+        } else if (ch == KEY_UP) {
+            if (history_pos != history_start) {
+                history_pos = history_pos == 0 ? 99 : history_pos - 1;
+                cur_item = history[history_pos];
+            }
+            int y, x;
+            getyx(cli_win, y, x);
+            wmove(cli_win, y, 2);
+            wclrtoeol(cli_win);
+            wmove(cli_win, y, 2);
+            waddstr(cli_win, cur_item);
+            wrefresh(cli_win);
+        } else if (ch == KEY_DOWN) {
+            if (history_end == history_pos) {
+                cur_item = buf;
+            } else {
+                history_pos = history_pos == 99 ? 0 : history_pos + 1;
+                cur_item = history[history_pos];
+            }
+            int y, x;
+            getyx(cli_win, y, x);
+            wmove(cli_win, y, 2);
+            wclrtoeol(cli_win);
+            wmove(cli_win, y, 2);
+            waddstr(cli_win, cur_item);
+            wrefresh(cli_win);
         } else if (ch == '\n') {
             wechochar(cli_win, ch);
             break;
@@ -853,8 +879,9 @@ dread:
             // CTRL-D
             wechochar(cli_win, '\n');
             goto prompt;
-        } else if (ch < 128) {
+        } else if ((ch < 128) && (cur_item == buf)) {
             buf[size] = ch;
+            buf[size+1] = 0;
             size++;
             wechochar(cli_win, ch);
         } else {
@@ -863,27 +890,32 @@ dread:
         }
     }
 
-    //int size = read(STDIN_FILENO, buf, 1024);
+    if (cur_item != buf) {
+        size = strlen(cur_item);
+    }
+
     if (size == 0) {
         goto prompt;
     }
 
     // add to history
-    /*
-    char* cmd = malloc(size);
-    memcpy(cmd, buf, size);
-    history[history_end] = (uint64_t) cmd;
-    history[history_end+1] = size;
-    history_end = (history_end + 2) % 200;
-    if (history_end <= history_start) {
-        history_start = (history_start + 2) % 200;
+    char* cmd = malloc(size+1);
+    memcpy(cmd, cur_item, size);
+    cmd[size] = 0;
+    char* old = history[history_end];
+    if (old != NULL) {
+        free(old);
     }
-    */
+    history[history_end] = cmd;
+    history_end = (history_end + 1) % 100;
+    if (history_end <= history_start) {
+        history_start = (history_start + 1) % 100;
+    }
 
-    if (size >= 1 && buf[0] == 's') {
+    if (size >= 1 && cur_item[0] == 's') {
         // step
         return;
-    } else if (size == 1 && buf[0] == 'd') {
+    } else if (size == 1 && cur_item[0] == 'd') {
         wprintw(cli_win, "pc:\t0x%x\t%d\t\t", pc, pc);
         wprintw(cli_win, "x%d:\t0x%x\t%d\n", 16, registers[16], registers[16]);
         for (int i = 1; i < 16; i++) {
@@ -892,7 +924,7 @@ dread:
         }
         wrefresh(cli_win);
         goto prompt;
-    } else if (size == 4 && strncmp(buf, "perf", 4) == 0) {
+    } else if (size == 4 && strncmp(cur_item, "perf", 4) == 0) {
         // print perf
         wprintw(cli_win, "Instruction count: %d\n", perf.instruction_count);
         wprintw(cli_win, "Loads: %d\n", perf.loads);
@@ -901,7 +933,7 @@ dread:
         wprintw(cli_win, "Heap size: 0x%x %d\n", heap_end - heap_start, heap_end - heap_start);
         wrefresh(cli_win);
         goto prompt;
-    } else if (size == 1 && buf[0] == 'i') {
+    } else if (size == 1 && cur_item[0] == 'i') {
         // print current instruction
         if (pc == instructions) {
             print_instruction(cli_win, pc[0]);
@@ -910,14 +942,14 @@ dread:
         }
         wrefresh(cli_win);
         goto prompt;
-    } else if (size >= 1 && buf[0] == 'p') {
+    } else if (size >= 1 && cur_item[0] == 'p') {
         // print register
         goto prompt;
-    } else if (size == 1 && buf[0] == 'r') {
+    } else if (size == 1 && cur_item[0] == 'r') {
         // run
         debug = 0;
         return;
-    } else if (size >= 1 && buf[0] == 'q') {
+    } else if (size >= 1 && cur_item[0] == 'q') {
         // quit
         // TODO: prompt
         if (curses) {
