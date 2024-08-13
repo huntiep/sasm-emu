@@ -76,10 +76,16 @@ uint64_t heap_end = 0;
 char* history[100] = {};
 int history_start = 0;
 int history_end = 0;
+int examine_seg = 0;
 
 void segfault(int sig_num) {
-    fprintf(stderr, "SEGFAULT\n");
-    donep = 1;
+    if (!examine_seg) {
+        fprintf(stderr, "SEGFAULT\n");
+        donep = 1;
+    } else {
+        wprintw(cli_win, "Unmapped memory address\n");
+        wrefresh(cli_win);
+    }
     while (1) {
         prompt();
     }
@@ -1032,8 +1038,10 @@ prompt:
             int y, x;
             getmaxyx(cli_win, y, x);
             x = x <= 21 ? x - 2 : 20;
+            examine_seg = 1;
             waddnstr(cli_win, (char*) addr, x);
             waddch(cli_win, '\n');
+            examine_seg = 0;
         }
         wrefresh(cli_win);
         goto prompt;
@@ -1044,8 +1052,10 @@ prompt:
         if (err == cur_item + 1 || *err != 0) {
             wprintw(cli_win, "Bad argument.\n");
         } else {
+            examine_seg = 1;
             addr = *((uint64_t*) addr);
             wprintw(cli_win, "0x%llx %lld\n", addr, addr);
+            examine_seg = 0;
         }
         wrefresh(cli_win);
         goto prompt;
