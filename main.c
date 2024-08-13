@@ -788,8 +788,7 @@ uint32_t* asm_view_pc;
 
 void print_asm(int cursor_x) {
     int h, w;
-    getmaxyx(stdscr, h ,w);
-    h = (h / 2) - 1;
+    getmaxyx(asm_win, h ,w);
     uint32_t* start = (asm_view_pc - (h / 2)) < instructions ? instructions : asm_view_pc - (h / 2);
     wmove(asm_win, 0, 0);
     for (int i = 0; i < h; i++) {
@@ -828,6 +827,12 @@ void asm_view(int cursor_x) {
             curs_set(1);
             return;
         } else if (ch == 'j') {
+            int h, w;
+            getmaxyx(asm_win, h ,w);
+            if ((asm_view_pc - (h / 2)) < instructions) {
+                asm_view_pc = instructions + (h / 2);
+            }
+
             asm_view_pc++;
             print_asm(cursor_x);
             wrefresh(cli_win);
