@@ -80,15 +80,13 @@ int examine_seg = 0;
 
 void segfault(int sig_num) {
     if (!examine_seg) {
-        fprintf(stderr, "SEGFAULT\n");
+        wprintw(cli_win, "SEGFAULT\n");
         donep = 1;
     } else {
         wprintw(cli_win, "Unmapped memory address\n");
-        wrefresh(cli_win);
     }
-    while (1) {
-        prompt();
-    }
+    wrefresh(cli_win);
+    return prompt();
 }
 
 void sigint(int sig_num) {
@@ -364,7 +362,6 @@ int step(int br) {
         }
     } else if (opcode == 0b0100011) {
         // S
-        perf.stores++;
         uint32_t rs1 = (instruction >> 20) & 0b11111;
         uint32_t rd = (instruction >> 15) & 0b11111;
         uint32_t funct3 = (instruction >> 12) & 0b111;
@@ -372,6 +369,7 @@ int step(int br) {
         uint64_t m = 1U << (12 - 1);
         imm = (imm ^ m) - m;
 
+        perf.stores++;
         uint64_t value = registers[rs1];
         uint64_t loc = registers[rd] + imm;
         if (funct3 == 0) {
@@ -500,7 +498,10 @@ void ecall(uint64_t registers[32]) {
     if (registers[17] == 93) {
         if (debug) {
             donep = 1;
-            while (1) { prompt(); }
+            pc--;
+            wprintw(cli_win, "Program exited with status code: %d\n", registers[10]);
+            wrefresh(cli_win);
+            return;
         }
         if (curses) {
             endwin();
@@ -963,16 +964,15 @@ prompt:
             cur_item++;
         } while (size > 0 && *cur_item == ' ');
 
-        if (size == 0) {
-            step(0);
-            goto start;
+        int steps = 1;
+        if (size != 0) {
+            steps = str_to_int(cur_item, size);
+            if (steps < 0) {
+                wprintw(cli_win, "Invalid argument.\n");
+                wrefresh(cli_win);
+            }
         }
-        int steps = str_to_int(cur_item, size);
-        if (steps < 0) {
-            wprintw(cli_win, "Invalid argument.\n");
-            wrefresh(cli_win);
-        }
-        for (; steps > 0; steps--) {
+        for (; steps > 0 && !donep; steps--) {
             if (step(0) == 1) {
                 pc--;
                 wprintw(cli_win, "ILLEGAL INSTRUCTION: %x at %x\n", pc[0], pc);
@@ -982,21 +982,21 @@ prompt:
         }
         goto start;
     } else if (size == 4 && strncmp(cur_item, "dump", 4) == 0) {
-        wprintw(cli_win, "pc:\t0x%x\t%d\t\t", pc, pc);
-        wprintw(cli_win, "x%d:\t0x%x\t%d\n", 16, registers[16], registers[16]);
+        wprintw(cli_win, "pc:\t0x%xll\t%lld\t\t", pc, pc);
+        wprintw(cli_win, "x%d:\t0x%xll\t%dll\n", 16, registers[16], registers[16]);
         for (int i = 1; i < 16; i++) {
-            wprintw(cli_win, "x%d:\t0x%x\t%d\t\t", i, registers[i], registers[i]);
-            wprintw(cli_win, "x%d:\t0x%x\t%d\n", i+16, registers[i+16], registers[i+16]);
+            wprintw(cli_win, "x%d:\t0x%xll\t%dll\t\t", i, registers[i], registers[i]);
+            wprintw(cli_win, "x%d:\t0x%xll\t%dll\n", i+16, registers[i+16], registers[i+16]);
         }
         wrefresh(cli_win);
         goto prompt;
     } else if (size == 4 && strncmp(cur_item, "perf", 4) == 0) {
         // print perf
-        wprintw(cli_win, "Instruction count: %d\n", perf.instruction_count);
-        wprintw(cli_win, "Loads: %d\n", perf.loads);
-        wprintw(cli_win, "Stores: %d\n", perf.stores);
-        wprintw(cli_win, "Syscalls: %d\n", perf.syscalls);
-        wprintw(cli_win, "Heap size: 0x%x %d\n", heap_end - heap_start, heap_end - heap_start);
+        wprintw(cli_win, "Instruction count: %lld\n", perf.instruction_count);
+        wprintw(cli_win, "Loads: %lld\n", perf.loads);
+        wprintw(cli_win, "Stores: %lld\n", perf.stores);
+        wprintw(cli_win, "Syscalls: %lld\n", perf.syscalls);
+        wprintw(cli_win, "Heap size: 0x%x %lld\n", heap_end - heap_start, heap_end - heap_start);
         wrefresh(cli_win);
         goto prompt;
     } else if (size == 1 && cur_item[0] == 'i') {
@@ -1013,7 +1013,7 @@ prompt:
         char* start = cur_item + 2;
         size -= 2;
         if (size == 2 && start[0] == 'p' && start[1] == 'c') {
-            wprintw(cli_win, "pc:\t0x%x\t%d\n", pc, pc);
+            wprintw(cli_win, "pc:\t0x%llx\t%lld\n", pc, pc);
         } else if (size > 1 && start[0] == 'x') {
             start++;
             size--;
@@ -1021,7 +1021,7 @@ prompt:
             if (reg < 0 || reg > 31) {
                 wprintw(cli_win, "Invalid register.\n");
             } else {
-                wprintw(cli_win, "x%d:\t0x%x\t%d\n", reg, registers[reg], registers[reg]);
+                wprintw(cli_win, "x%d:\t0x%llx\t%lld\n", reg, registers[reg], registers[reg]);
             }
         } else {
             wprintw(cli_win, "Invalid register.\n");
@@ -1094,6 +1094,10 @@ prompt:
         goto start;
     } else if (size == 1 && cur_item[0] == 'c') {
         // run to next breakpoint
+        if (donep) {
+            goto prompt;
+        }
+
         // have to step at least once in case we are sitting on a breakpoint
         if (step(0) == 1) {
             pc--;
@@ -1102,7 +1106,7 @@ prompt:
             goto start;
         }
 
-        while (1) {
+        while (!donep) {
             int res = step(1);
             if (res == 2) {
                 wprintw(cli_win, "Breakpoint reached.\n");
