@@ -1124,11 +1124,48 @@ prompt:
         while (1) {
             step(0);
         }
-    } else if (size >= 1 && cur_item[0] == 'q') {
+    } else if (size == 1 && cur_item[0] == 'q') {
         // quit
-        // TODO: prompt
-        endwin();
-        exit(0);
+        wprintw(cli_win, "Are you sure you want to quit? ");
+        wrefresh(cli_win);
+        buf[0] = 0;
+        size = 0;
+        while (1) {
+            int ch = getch();
+            if (ch == KEY_RESIZE) {
+                resize();
+                int y, x;
+                getmaxyx(cli_win, y, x);
+                wmove(cli_win, y, size+31);
+                wrefresh(cli_win);
+            } else if ((ch == KEY_BACKSPACE) && (cur_item == buf)) {
+                if (size) {
+                    int y, x;
+                    getyx(cli_win, y, x);
+                    mvwaddch(cli_win, y, x-1, ' ');
+                    wmove(cli_win, y, x-1);
+                    wrefresh(cli_win);
+                    size--;
+                }
+            } else if (ch == '\n') {
+                wechochar(cli_win, ch);
+                break;
+            } else if (ch == 4) {
+                // CTRL-D
+                wechochar(cli_win, '\n');
+                goto prompt;
+            } else if ((ch < 128) && (cur_item == buf)) {
+                buf[size] = ch;
+                buf[size+1] = 0;
+                size++;
+                wechochar(cli_win, ch);
+            }
+        }
+        if (size == 1 && buf[0] == 'y') {
+            endwin();
+            exit(0);
+        }
+        goto prompt;
     } else {
         wprintw(cli_win, "Unknown command.\n");
         wrefresh(cli_win);
