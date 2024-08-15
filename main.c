@@ -118,6 +118,7 @@ int main(int argc, char* argv[]) {
     int exe = openat(AT_FDCWD, argv[0], O_RDONLY);
     struct ehdr hdr;
     read(exe, (char*) &hdr, sizeof(struct ehdr));
+    // TODO: track allocated regions and segfault on load/store outside of these.
 
     if (hdr.e_machine != RISCV || hdr.e_type != 2) {
         fprintf(stderr, "Bad exe\n");
@@ -468,8 +469,12 @@ int step(int br) {
         pc++;
     } else if (opcode == 0b1110011) {
         if ((instruction & (1 << 12)) != 0) {
-            // TODO: ebreak
+            // ebreak
+            if (br) {
+                return 2;
+            }
         } else {
+            // ecall
             perf.syscalls++;
             if (registers[17] == 214) {
                 // brk
@@ -510,6 +515,11 @@ void ecall(uint64_t registers[32]) {
         if (curses) {
             endwin();
         }
+    } else if (curses && registers[17] == 64 && (registers[10] == 1 || registers[10] == 2)) {
+        // write to STDOUT/STDIN
+        waddnstr(cli_win, (char*) registers[11], registers[12]);
+        wrefresh(cli_win);
+        return;
     }
     uint16_t syscalls_map[320] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                                  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
