@@ -84,6 +84,7 @@ void segfault(int sig_num) {
         wprintw(cli_win, "SEGFAULT\n");
         donep = 1;
     } else {
+        examine_seg = 0;
         wprintw(cli_win, "Unmapped memory address\n");
     }
     wrefresh(cli_win);
