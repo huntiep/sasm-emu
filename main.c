@@ -53,6 +53,7 @@ struct perf {
     uint64_t loads;
     uint64_t stores;
     uint64_t syscalls;
+    uint64_t branches;
 };
 
 void print_usage(char* prog) {
@@ -392,6 +393,7 @@ int step(int br) {
     } else if (opcode == 0b1100011) {
         // B
         pc--;
+        perf.branches++;
         uint32_t rs1 = (instruction >> 15) & 0b11111;
         uint32_t rs2 = (instruction >> 20) & 0b11111;
         uint32_t funct3 = (instruction >> 12) & 0b111;
@@ -421,6 +423,7 @@ int step(int br) {
             pc = (uint32_t*) (((uint64_t) pc) + imm);
         } else {
             pc++;
+            perf.branches--;
         }
     } else if (opcode == 0b1101111) {
         // JAL
@@ -995,6 +998,7 @@ prompt:
         wprintw(cli_win, "Instruction count: %lld\n", perf.instruction_count);
         wprintw(cli_win, "Loads: %lld\n", perf.loads);
         wprintw(cli_win, "Stores: %lld\n", perf.stores);
+        wprintw(cli_win, "Branches: %lld\n", perf.branches);
         wprintw(cli_win, "Syscalls: %lld\n", perf.syscalls);
         wprintw(cli_win, "Heap size: 0x%x %lld\n", heap_end - heap_start, heap_end - heap_start);
         wrefresh(cli_win);
