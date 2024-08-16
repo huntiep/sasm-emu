@@ -257,21 +257,30 @@ int step(int br) {
                 value = left & right;
         } else if (funct3 == 1) {
             // sll
-            value = left << right;
+            value = left << (right & 0b111111);
         } else if (funct3 == 5) {
             if (funct7 == 0x00) {
                 // srl
-                // TODO
+                right = right & 0b111111;
+                value = (left << right) | (left>>(-right & 63));
             } else if (funct7 == 0x20) {
                 // sra
-                value = left >> right;
+                value = left >> (right & 0b111111);
             }
         } else if (funct3 == 2) {
             // slt
-            // TODO
+            if ((int64_t) left < (int64_t) right) {
+                value = 1;
+            } else {
+                value = 0;
+            }
         } else if (funct3 == 3) {
             // sltu
-            // TODO
+            if (left < right) {
+                value = 1;
+            } else {
+                value = 0;
+            }
         }
         if (rd > 0) {
             registers[rd] = value;
@@ -301,21 +310,30 @@ int step(int br) {
             value = left & imm;
         } else if (funct3 == 1) {
             // slli
-            value = left << imm;
+            value = left << (imm & 0b111111);
         } else if (funct3 == 5) {
             if ((imm >> 5) == 0x20) {
                 // srai
-                value = left >> imm;
+                value = left >> (imm & 0b111111);
             } else {
                 // srli
-                // TODO
+                imm = imm & 0b111111;
+                value = (left << imm) | (left>>(-imm & 63));
             }
         } else if (funct3 == 2) {
             // slti
-            // TODO
+            if ((int64_t) left < (int64_t) imm) {
+                value = 1;
+            } else {
+                value = 0;
+            }
         } else if (funct3 == 3) {
             // sltiu
-            // TODO
+            if (left < imm) {
+                value = 1;
+            } else {
+                value = 0;
+            }
         }
         if (rd > 0) {
             registers[rd] = value;
@@ -1088,7 +1106,8 @@ prompt:
             wprintw(cli_win, "Breakpoint %d added at 0x%x.\n", total_breakpoints, addr);
         }
         wrefresh(cli_win);
-        goto start;
+        print_asm(0);
+        goto prompt;
     } else if (size >= 1 && cur_item[0] == 'd') {
         // delete breakpoint
         if (size == 1) {
@@ -1106,7 +1125,8 @@ prompt:
             }
         }
         wrefresh(cli_win);
-        goto start;
+        print_asm(0);
+        goto prompt;
     } else if (size == 1 && cur_item[0] == 'c') {
         // run to next breakpoint
         if (donep) {
