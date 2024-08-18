@@ -512,7 +512,7 @@ int step(int br) {
             donep = 1;
             return 1;
         } else {
-            fprintf(stderr, "ILLEGAL INSTRUCTION: %x at %x\n", instruction, pc);
+            fprintf(stderr, "ILLEGAL INSTRUCTION: %llx at %llx\n", instruction, pc);
             exit(1);
         }
     }
@@ -535,6 +535,7 @@ void ecall(uint64_t registers[32]) {
         }
     } else if (curses && registers[17] == 64 && (registers[10] == 1 || registers[10] == 2)) {
         // write to STDOUT/STDIN
+        registers[10] = registers[12];
         waddnstr(cli_win, (char*) registers[11], registers[12]);
         wrefresh(cli_win);
         return;
@@ -616,13 +617,16 @@ int print_instruction(WINDOW* win, uint32_t instruction) {
             wprintw(win, "(and ");
         } else if (funct3 == 1) {
             // sll
+            rs2 = rs2 & 0b111111;
             wprintw(win, "(sll ");
         } else if (funct3 == 5) {
             if (funct7 == 0x00) {
                 // srl
+                rs2 = rs2 & 0b111111;
                 wprintw(win, "(srl ");
             } else if (funct7 == 0x20) {
                 // sra
+                rs2 = rs2 & 0b111111;
                 wprintw(win, "(sra ");
             }
         } else if (funct3 == 2) {
@@ -656,13 +660,16 @@ int print_instruction(WINDOW* win, uint32_t instruction) {
             wprintw(win, "(andi ");
         } else if (funct3 == 1) {
             // slli
+                imm = imm & 0b111111;
             wprintw(win, "(slli ");
         } else if (funct3 == 5) {
             if ((imm >> 5) == 0x20) {
                 // srai
+                imm = imm & 0b111111;
                 wprintw(win, "(srai ");
             } else {
                 // srli
+                imm = imm & 0b111111;
                 wprintw(win, "(srli ");
             }
         } else if (funct3 == 2) {
@@ -1014,11 +1021,11 @@ prompt:
         }
         goto start;
     } else if (size == 4 && strncmp(cur_item, "dump", 4) == 0) {
-        wprintw(cli_win, "pc:\t0x%xll\t%lld\t\t", pc, pc);
-        wprintw(cli_win, "x%d:\t0x%xll\t%dll\n", 16, registers[16], registers[16]);
+        wprintw(cli_win, "pc:\t0x%llx\t%lld\t\t", pc, pc);
+        wprintw(cli_win, "x%d:\t0x%llx\t%dll\n", 16, registers[16], registers[16]);
         for (int i = 1; i < 16; i++) {
-            wprintw(cli_win, "x%d:\t0x%xll\t%dll\t\t", i, registers[i], registers[i]);
-            wprintw(cli_win, "x%d:\t0x%xll\t%dll\n", i+16, registers[i+16], registers[i+16]);
+            wprintw(cli_win, "x%d:\t0x%llx\t%lld\t\t", i, registers[i], registers[i]);
+            wprintw(cli_win, "x%d:\t0x%llx\t%lld\n", i+16, registers[i+16], registers[i+16]);
         }
         wrefresh(cli_win);
         goto prompt;
@@ -1029,7 +1036,7 @@ prompt:
         wprintw(cli_win, "Stores: %lld\n", perf.stores);
         wprintw(cli_win, "Branches: %lld\n", perf.branches);
         wprintw(cli_win, "Syscalls: %lld\n", perf.syscalls);
-        wprintw(cli_win, "Heap size: 0x%x %lld\n", heap_end - heap_start, heap_end - heap_start);
+        wprintw(cli_win, "Heap size: 0x%llx %lld\n", heap_end - heap_start, heap_end - heap_start);
         wrefresh(cli_win);
         goto prompt;
     } else if (size == 1 && cur_item[0] == 'i') {
