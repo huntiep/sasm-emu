@@ -18,7 +18,11 @@ and I was sick of it.
 - `d [addr]` => Delete the breakpoint at address `addr`. If no `addr` is given, delete all breakpoints.
 - `c` => Continue until the next breakpoint is reached.
 - `i` => Print the current instruction.
-- `x [addr]` => Print memory at address `addr`.
+- `x [addr]` => Print memory (dword) at address `addr`.
+    - `xb [addr]` => Print byte at address `addr`.
+    - `xh [addr]` => Print half at address `addr`.
+    - `xw [addr]` => Print word at address `addr`.
+    - `xd [addr]` => Print dword at address `addr`.
 - `xs [addr]` => Print memory at address `addr` as a string.
 - `p [r]` => Print the register `r` specified as `pc` or `x[0-31]`.
 - `dump` => Print all registers.

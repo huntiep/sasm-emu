@@ -1085,15 +1085,45 @@ prompt:
         }
         wrefresh(cli_win);
         goto prompt;
-    } else if (size > 2 && strncmp(cur_item, "x ", 2) == 0) {
+    } else if (size > 2 && cur_item[0] == 'x') {
         // examine memory
+        int size = 8;
+        if (cur_item[1] != ' ') {
+            cur_item++;
+            if (cur_item[0] == 'b') {
+                size = 1;
+            } else if (cur_item[1] == 'h') {
+                size = 2;
+            } else if (cur_item[1] == 'w') {
+                size = 4;
+            } else if (cur_item[1] == 'd') {
+                size = 8;
+            } else {
+                wprintw(cli_win, "Bad argument.\n");
+                wrefresh(cli_win);
+                goto prompt;
+            }
+            if (cur_item[1] != ' ') {
+                wprintw(cli_win, "Bad argument.\n");
+                wrefresh(cli_win);
+                goto prompt;
+            }
+        }
         char* err;
         uint64_t addr = strtoll(cur_item + 2, &err, 16);
         if (err == cur_item + 1 || *err != 0) {
             wprintw(cli_win, "Bad argument.\n");
         } else {
             examine_seg = 1;
-            addr = *((uint64_t*) addr);
+            if (size == 1) {
+                addr = *((uint8_t*) addr);
+            } else if (size == 2) {
+                addr = *((uint16_t*) addr);
+            } else if (size == 4) {
+                addr = *((uint32_t*) addr);
+            } else if (size == 8) {
+                addr = *((uint64_t*) addr);
+            }
             wprintw(cli_win, "0x%llx %lld\n", addr, addr);
             examine_seg = 0;
         }
